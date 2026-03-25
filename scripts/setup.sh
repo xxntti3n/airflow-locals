@@ -96,7 +96,15 @@ echo ""
 
 # Wait for KEDA CRDs to be registered
 echo -e "${YELLOW}Waiting for KEDA CRDs to be ready...${NC}"
-timeout 60 bash -c 'until kubectl get crd scaledobjects.keda.sh &>/dev/null; do sleep 2; done'
+count=0
+until kubectl get crd scaledobjects.keda.sh &>/dev/null; do
+  if [ $count -ge 30 ]; then
+    echo -e "${RED}Timeout waiting for KEDA CRDs${NC}"
+    exit 1
+  fi
+  sleep 2
+  count=$((count + 1))
+done
 echo -e "${GREEN}✓ KEDA CRDs ready${NC}"
 echo ""
 
