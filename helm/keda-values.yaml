@@ -1,0 +1,18 @@
+# helm/keda-values.yaml
+# Minimal KEDA installation for Airflow worker autoscaling
+
+# Install KEDA core components
+installKeda: true
+
+# Do not install KEDA Operator admission webhooks (not needed for local dev)
+admissionWebhooks:
+  enabled: false
+
+# Metrics server integration (Kind has built-in metrics)
+serviceAccount:
+  create: true
+
+# RBAC for KEDA to manage ScaledObjects
+featureFlag:
+  enabledFeatures:
+    - "scaledjob"
