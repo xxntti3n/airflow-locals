@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deploy a fully self-contained Airflow 3.x development environment on Kind with CeleryExecutor and KEDA hybrid auto-scaling.
+**Goal:** Deploy a fully self-contained Airflow 2.9.x development environment on Kind with CeleryExecutor and KEDA hybrid auto-scaling.
 
 **Architecture:** Kind cluster runs Airflow (Webserver, Scheduler, Workers), PostgreSQL, Redis, and KEDA. Workers scale 0→N based on Redis queue depth with CPU/memory safeguards. All components access via port-forward.
 
-**Tech Stack:** Kind, Airflow 3.x (Helm), PostgreSQL, Redis, KEDA (Helm), Bash scripts
+**Tech Stack:** Kind, Airflow 2.9.x (Helm), PostgreSQL, Redis, KEDA (Helm), Bash scripts
+
+**Note:** Using Airflow 2.9.x as Airflow 3.x Helm charts are not yet generally available. Upgrade path to 3.x will be straightforward once released.
 
 ---
 
@@ -179,17 +181,33 @@ env:
     value: "False"
 
 # --- DAGs ---
-# Load DAGs from local git sync or ConfigMap
+# Load DAGs from ConfigMap created by setup script
 dags:
   persistence:
-    enabled: false  # We'll use git sync or ConfigMap for local dev
+    enabled: true
+    # Use existing ConfigMap created by setup script
+    existingClaim: null
   gitSync:
-    enabled: false  # For now, we'll inject via ConfigMap
+    enabled: false
 
-# --- ConfigMap for example DAGs ---
-configMaps:
-  dag-persistent-volume:
-    # This will be populated with our example DAGs
+# Volume mount for DAGs from ConfigMap
+extraVolumeMounts:
+  - name: dag-files
+    mountPath: /opt/airflow/dags
+    readOnly: true
+    subPath: null
+
+extraVolumes:
+  - name: dag-files
+    configMap:
+      name: airflow-dag-examples
+      items:
+        - key: example_bash_operator.py
+          path: example_bash_operator.py
+        - key: example_task_flow.py
+          path: example_task_flow.py
+        - key: __init__.py
+          path: __init__.py
 
 # --- PostgreSQL Database ---
 postgresql:
@@ -232,27 +250,25 @@ workers:
     # Redis scaler configuration
     # Note: This requires KEDA to be installed first
     scaledObject:
-      # ScaledObject metadata
-      apiVersion: keda.sh/v1alpha1
-      kind: ScaledObject
-      metadata:
-        name: airflow-worker-scaler
-      spec:
-        scaleTargetRef:
-          apiVersion: apps/v1
-          kind: Deployment
-          name: airflow-worker
-        pollingInterval: 15
-        cooldownPeriod: 300
-        minReplicaCount: 0
-        maxReplicaCount: 5
-        triggers:
-          - type: redis
-            metadata:
-              address: redis-master:6379
-              listName: default
-              listLength: "5"  # Scale when queue has 5+ tasks
-              activationListLength: "1"  # Activate when 1+ tasks in queue
+      # pollingInterval: Seconds between checks
+      pollingInterval: 15
+      # cooldownPeriod: Seconds after last trigger before scaling to zero
+      cooldownPeriod: 300
+      # minReplicaCount: Minimum workers (0 for serverless)
+      minReplicaCount: 0
+      # maxReplicaCount: Maximum workers
+      maxReplicaCount: 5
+      triggers:
+        - type: redis
+          metadata:
+            address: redis-master:6379
+            listName: default
+            listLength: "5"  # Scale when queue has 5+ tasks
+            activationListLength: "1"  # Activate when 1+ tasks in queue
+            # Disable TLS for local development
+            enableTLS: "false"
+            # No authentication for local Redis
+            # If Redis requires password, add: redisPasswordFromEnv: REDIS_PASSWORD
 
   # Worker resources (CPU/Memory safeguards)
   resources:
@@ -580,6 +596,12 @@ helm upgrade --install keda kedacore/keda \
 echo -e "${GREEN}✓ KEDA installed${NC}"
 echo ""
 
+# Wait for KEDA CRDs to be registered
+echo -e "${YELLOW}Waiting for KEDA CRDs to be ready...${NC}"
+timeout 60 bash -c 'until kubectl get crd scaledobjects.keda.sh &>/dev/null; do sleep 2; done'
+echo -e "${GREEN}✓ KEDA CRDs ready${NC}"
+echo ""
+
 # Add Airflow Helm repository
 echo -e "${YELLOW}Adding Airflow Helm repository...${NC}"
 helm repo add apache-airflow https://airflow.apache.org
@@ -783,7 +805,7 @@ git commit -m "feat: add teardown script
 ```markdown
 # Airflow on Kind with KEDA Auto-scaling
 
-Local Airflow 3.x development environment on Kubernetes (Kind) with CeleryExecutor and KEDA-based worker auto-scaling.
+Local Airflow 2.9.x development environment on Kubernetes (Kind) with CeleryExecutor and KEDA-based worker auto-scaling.
 
 ## Features
 
@@ -971,7 +993,7 @@ git commit -m "docs: add comprehensive README
 - [ ] **Step 1: Verify project structure**
 
 ```bash
-tree -L 2 -a || find . -type f -not -path './.git/*' | sort
+find . -type f -not -path './.git/*' | sort
 ```
 
 Expected output should include:
@@ -997,8 +1019,9 @@ Expected: All `.sh` files should have `-rwxr-xr-x` or similar (executable)
 - [ ] **Step 3: Syntax check YAML files**
 
 ```bash
-# Requires python3 and pyyaml
-python3 -c "
+# Check if python3 and pyyaml are available
+if command -v python3 &> /dev/null && python3 -c "import yaml" 2>/dev/null; then
+    python3 -c "
 import yaml
 import sys
 
@@ -1017,9 +1040,13 @@ for f in files:
         print(f'✗ {f}: {e}')
         sys.exit(1)
 "
+else
+    echo "⚠ pyyaml not available, skipping YAML validation"
+    echo "Install with: pip install pyyaml"
+fi
 ```
 
-Expected: All files show ✓
+Expected: All files show ✓ (or warning if pyyaml missing)
 
 - [ ] **Step 4: Syntax check Python files**
 
