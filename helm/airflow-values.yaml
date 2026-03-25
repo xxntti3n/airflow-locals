@@ -1,0 +1,172 @@
+# helm/airflow-values.yaml
+# Airflow 3.x with CeleryExecutor and KEDA autoscaling
+
+# Airflow version
+airflowVersion: "2.9.0"  # Use stable 2.9.x as 3.x Helm chart may not be available
+
+# Executor configuration
+executor: "CeleryExecutor"
+
+# --- Environment Variables ---
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  - name: AIRFLOW__WEBSERVER__EXPOSE_CONFIG
+    value: "True"
+  - name: AIRFLOW__WEBSERVER__AUTHENTICATE
+    value: "False"
+
+# --- DAGs ---
+# Load DAGs from ConfigMap created by setup script
+dags:
+  persistence:
+    enabled: true
+    # Use existing ConfigMap created by setup script
+    existingClaim: null
+  gitSync:
+    enabled: false
+
+# Volume mount for DAGs from ConfigMap
+extraVolumeMounts:
+  - name: dag-files
+    mountPath: /opt/airflow/dags
+    readOnly: true
+    subPath: null
+
+extraVolumes:
+  - name: dag-files
+    configMap:
+      name: airflow-dag-examples
+      items:
+        - key: example_bash_operator.py
+          path: example_bash_operator.py
+        - key: example_task_flow.py
+          path: example_task_flow.py
+        - key: __init__.py
+          path: __init__.py
+
+# --- PostgreSQL Database ---
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "15"
+  postgresqlUsername: postgres
+  postgresqlPassword: airflow
+  postgresqlDatabase: airflow
+  persistence:
+    enabled: true
+    size: 1Gi
+
+# --- Redis (Celery Broker) ---
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  master:
+    persistence:
+      enabled: true
+      size: 512Mi
+
+# --- Celery Worker Configuration ---
+workers:
+  # Use KEDA for autoscaling
+  autoscaling:
+    enabled: true
+
+  # Minimal worker pod configuration
+  replicas: 0  # KEDA will manage replicas
+
+  # KEDA ScaledObject configuration
+  keda:
+    # Enable KEDA autoscaling
+    enabled: true
+
+    # Redis scaler configuration
+    # Note: This requires KEDA to be installed first
+    scaledObject:
+      # pollingInterval: Seconds between checks
+      pollingInterval: 15
+      # cooldownPeriod: Seconds after last trigger before scaling to zero
+      cooldownPeriod: 300
+      # minReplicaCount: Minimum workers (0 for serverless)
+      minReplicaCount: 0
+      # maxReplicaCount: Maximum workers
+      maxReplicaCount: 5
+      triggers:
+        - type: redis
+          metadata:
+            address: redis-master:6379
+            listName: default
+            listLength: "5"  # Scale when queue has 5+ tasks
+            activationListLength: "1"  # Activate when 1+ tasks in queue
+            # Disable TLS for local development
+            enableTLS: "false"
+            # No authentication for local Redis
+            # If Redis requires password, add: redisPasswordFromEnv: REDIS_PASSWORD
+
+  # Worker resources (CPU/Memory safeguards)
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2048Mi
+
+  # Worker command
+  command:
+    - "/usr/bin/dumb-init"
+    - "--"
+    - "/entrypoint"
+    - "celery"
+    - "worker"
+
+# --- Scheduler ---
+scheduler:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1536Mi
+
+  # Wait for Redis and PostgreSQL
+  extraContainers: |
+
+# --- Webserver ---
+webserver:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Service configuration for port-forward
+  service:
+    type: ClusterIP
+    ports:
+      - name: airflow-ui
+        port: 8080
+
+# --- Statsd (Prometheus exporter) ---
+statsd:
+  enabled: false
+
+# --- PGBadger (PostgreSQL logging) ---
+pgbouncer:
+  enabled: false
+
+# --- Ingress ---
+ingress:
+  enabled: false
+
+# --- PDB (Pod Disruption Budget) ---
+podDisruptionBudget:
+  enabled: false
