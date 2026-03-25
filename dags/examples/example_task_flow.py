@@ -6,7 +6,7 @@ from airflow.operators.empty import EmptyOperator
 
 with DAG(
     dag_id="example_task_flow",
-    start_date=datetime(2025, 1, 1),
+    start_date=datetime(2026, 1, 1),
     schedule_interval="@daily",
     catchup=False,
     tags=["example", "dependencies"],

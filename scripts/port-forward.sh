@@ -13,7 +13,7 @@ echo "Forwarding ${SERVICE}.${NAMESPACE}:${REMOTE_PORT} -> localhost:${LOCAL_POR
 echo "Press Ctrl+C to stop"
 echo ""
 echo "Airflow UI will be available at: http://localhost:${LOCAL_PORT}"
-echo "Default credentials: admin / admin"
+echo "Note: Authentication is disabled for local development"
 echo ""
 
 kubectl port-forward \

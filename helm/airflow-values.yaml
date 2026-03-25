@@ -20,9 +20,7 @@ env:
 # Load DAGs from ConfigMap created by setup script
 dags:
   persistence:
-    enabled: true
-    # Use existing ConfigMap created by setup script
-    existingClaim: null
+    enabled: false  # Using ConfigMap instead
   gitSync:
     enabled: false
 

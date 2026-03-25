@@ -52,7 +52,7 @@ This will:
 
 Then open http://localhost:8080
 
-**Default credentials:** `admin` / `admin`
+**Note:** Authentication is disabled for local development. No credentials required.
 
 ## Architecture
 
