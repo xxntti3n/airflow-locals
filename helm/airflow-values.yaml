@@ -19,22 +19,42 @@ env:
 executor: CeleryExecutor
 
 # --- DAGs ---
+# Use emptyDir with initContainer to copy from ConfigMap
+# This avoids ConfigMap symlink issues that cause "recursive loop" errors
 dags:
   persistence:
-    enabled: false  # Using ConfigMap
-  gitSync:
-    enabled: false
+    enabled: true  # Enable persistence to use emptyDir
+    size: 1Gi
+    storageClassName: ""  # Use emptyDir default
 
-# Volume mount for DAGs from ConfigMap
-extraVolumeMounts:
-  - name: dag-files
-    mountPath: /opt/airflow/dags
-    readOnly: true
+# Init container to copy DAGs from ConfigMap to emptyDir
+# Note: This is a workaround for ConfigMap symlink issues
+extraInitContainers:
+  - name: copy-dags
+    image: apache/airflow:3.1.8
+    command:
+      - sh
+      - -c
+      - |
+        # Copy DAG files from ConfigMap to DAGs directory
+        # ConfigMap creates symlinks which cause recursive loop errors
+        if [ -d /dags-source ]; then
+          cp -L /dags-source/*.py /opt/airflow/dags/ 2>/dev/null || true
+        fi
+        echo "DAGs copied:"
+        ls -la /opt/airflow/dags/
+    volumeMounts:
+      - name: dags
+        mountPath: /opt/airflow/dags
+      - name: dag-source
+        mountPath: /dags-source
 
+# Extra volumes for DAG source (ConfigMap)
 extraVolumes:
-  - name: dag-files
+  - name: dag-source
     configMap:
       name: airflow-dag-examples
+      optional: true
 
 # --- PostgreSQL Database ---
 postgresql:
@@ -46,7 +66,14 @@ redis:
 
 # --- Workers ---
 workers:
-  replicas: 1  # Start with 1 worker
+  replicas: 1
+  # KEDA autoscaling configuration
+  keda:
+    enabled: true
+    # Optional: customize KEDA scaling behavior
+    # scalingModifiers:
+    #   - source: redis
+    #     target: ""  # calculated from queue length
   resources:
     requests:
       cpu: 250m

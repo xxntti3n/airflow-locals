@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from airflow import DAG
-from airflow.operators.bash import BashOperator
-from airflow.operators.empty import EmptyOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
 
 with DAG(
     dag_id="example_task_flow",
     start_date=datetime(2026, 1, 1),
-    schedule_interval="@daily",
+    schedule="@daily",
     catchup=False,
     tags=["example", "dependencies"],
     description="Demonstrates task dependencies and parallel execution",

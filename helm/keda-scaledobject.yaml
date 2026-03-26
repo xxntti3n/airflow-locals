@@ -1,0 +1,34 @@
+# KEDA ScaledObject for Airflow Workers
+# Enables queue-based autoscaling based on Redis queue depth
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: airflow-worker-scaler
+  namespace: airflow
+  labels:
+    app: airflow-worker
+spec:
+  # Target the Airflow worker StatefulSet
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: airflow-worker
+  # Minimum and maximum number of workers
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  # Cooldown period before scaling down (prevents flapping)
+  cooldownPeriod: 300
+  # Redis scaler configuration
+  triggers:
+    - type: redis
+      metadata:
+        # Redis service address (host:port format only)
+        address: airflow-redis.airflow.svc.cluster.local:6379
+        # Redis password
+        password: gEUC7kRaRU
+        # Redis list that Celery uses as a queue
+        listName: default
+        # List length threshold for scaling (1 task = 1 worker)
+        listLength: "1"
+        # Use TLS (false for local dev)
+        enableTLS: "false"
